@@ -16,6 +16,14 @@ define([
 
 function(app, _, moment, Backbone, DirectusModal, DirectusEdit, __t, Notification, BasePageView, DirectusTable, Widgets, EditFilesView, FilesCardView) {
 
+  var MAX_CONCURRENT_UPLOADS = 5;
+
+  var triggerProgress = function() {
+    $(document).on('ajaxStart.directus', function() {
+      app.trigger('progress');
+    });
+  }
+
   return BasePageView.extend({
     headerOptions: {
       route: {
@@ -134,9 +142,7 @@ function(app, _, moment, Backbone, DirectusModal, DirectusEdit, __t, Notificatio
       dropzone.removeEventListener('dragenter', this.dragoverListener, false);
 
       $(document).off('ajaxStart.directus');
-      $(document).on('ajaxStart.directus', function() {
-        app.trigger('progress');
-      });
+      triggerProgress();
     },
 
     processDroppedImages: function (event) {
@@ -168,23 +174,24 @@ function(app, _, moment, Backbone, DirectusModal, DirectusEdit, __t, Notificatio
       });
 
       this.collection.trigger('sync');
-      if (! this.uploadInProgress) {
-        this.uploadInProgress = true;
+      this.uploadsInProgress = Math.max(this.uploadsInProgress, 0);
+      this.uploadImages();
+    },
+
+    uploadImages: function() {
+      var howMany =
+          Math.max(0,
+                   Math.min(MAX_CONCURRENT_UPLOADS - this.uploadsInProgress, this.uploadFiles.length));
+      while(howMany--) {
         this.uploadNextImage();
       }
     },
 
     uploadNextImage: function() {
-      if (this.uploadFiles.length <= 0) {
-        this.uploadInProgress = false;
+      if (this.uploadFiles.length <= 0 || this.uploadsInProgress >= MAX_CONCURRENT_UPLOADS) return;
 
-        return;
-      }
-
-      var that = this;
       var fileInfo = this.uploadFiles.shift();
       if (app.settings.isMaxFileSizeExceeded(fileInfo.fileInfo)) {
-        this.uploadInProgress = false;
         Notification.error(__t('max_file_size_exceeded_x_x', {
           size: app.settings.getMaxFileSize(),
           unit: app.settings.getMaxFileSizeUnit()
@@ -193,11 +200,12 @@ function(app, _, moment, Backbone, DirectusModal, DirectusEdit, __t, Notificatio
         this.collection.remove(fileInfo.model);
         this.collection.trigger('sync');
 
-        that.uploadNextImage();
+        this.uploadNextImage();
 
         return false;
       }
 
+      this.uploadsInProgress++;
 
       $(document).off('ajaxStart.directus');
 
@@ -216,15 +224,10 @@ function(app, _, moment, Backbone, DirectusModal, DirectusEdit, __t, Notificatio
           model.save(attributes, {
             success: function() {
               that.collection.sort();
-              $(document).on('ajaxStart.directus', function() {
-                app.trigger('progress');
-              });
+              triggerProgress();
             },
             error: function() {
-              $(document).on('ajaxStart.directus', function() {
-                app.trigger('progress');
-              });
-
+              triggerProgress();
               that.collection.remove(model);
               that.collection.trigger('sync');
             },
@@ -255,6 +258,7 @@ function(app, _, moment, Backbone, DirectusModal, DirectusEdit, __t, Notificatio
       this.viewList = false;
       this.table = new FilesCardView({collection:this.collection});
       this.widgets = [];
+      this.uploadsInProgress = 0;
     }
   });
 });
