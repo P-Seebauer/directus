@@ -201,11 +201,19 @@ function(app, _, moment, Backbone, DirectusModal, DirectusEdit, __t, Notificatio
 
       $(document).off('ajaxStart.directus');
 
-      app.sendFiles([fileInfo.fileInfo], function(data) {
+      app.sendFiles([fileInfo.fileInfo],
+                    this.getSendFileSuccessHandler(fileInfo.model, fileInfo.fileInfo.type),
+                    this.getSendFileProgressHandler(fileInfo.model));
+    },
+
+    getSendFileSuccessHandler: function getSendFileSuccessHandler(model, type) {
+      var that = this;
+      return function fileSuccessHandler(data) {
+        that.uploadsInProgress--;
         if (data && typeof(data[0]) === 'object') {
           var attributes = data[0];
-          attributes['type'] = fileInfo.fileInfo.type;
-          fileInfo.model.save(attributes, {
+          attributes['type'] = type;
+          model.save(attributes, {
             success: function() {
               that.collection.sort();
               $(document).on('ajaxStart.directus', function() {
@@ -217,7 +225,7 @@ function(app, _, moment, Backbone, DirectusModal, DirectusEdit, __t, Notificatio
                 app.trigger('progress');
               });
 
-              that.collection.remove(fileInfo.model);
+              that.collection.remove(model);
               that.collection.trigger('sync');
             },
             wait: true,
@@ -225,21 +233,22 @@ function(app, _, moment, Backbone, DirectusModal, DirectusEdit, __t, Notificatio
             validate: false
           });
           that.collection.trigger('sync');
-          that.uploadNextImage();
         } else {
-          $(document).on('ajaxStart.directus', function() {
-            app.trigger('progress');
-          });
-          that.collection.remove(fileInfo.model);
+          triggerProgress();
+          that.collection.remove(model);
           that.collection.trigger('sync');
-          that.uploadNextImage();
         }
-      }, function(e) {
-        $('li[data-cid=' + fileInfo.model.cid + ']').find('.files-card-progress').show();
-        $('li[data-cid=' + fileInfo.model.cid + ']').find('.default-loading > .icon').removeClass('icon-three-dots');
-        $('li[data-cid=' + fileInfo.model.cid + ']').find('.default-loading > .icon').addClass('icon-upload-cloud');
-        $('li[data-cid=' + fileInfo.model.cid + ']').find('.files-card-progress').width(((e.loaded / e.total) * 100) + "%");
-      });
+        that.uploadNextImage();
+      }
+    },
+
+    getSendFileProgressHandler: function getSendFileProgressHandler(model) {
+      return function sendFileProgressHandler(e)  {
+        $('li[data-cid=' + model.cid + ']').find('.files-card-progress').show();
+        $('li[data-cid=' + model.cid + ']').find('.default-loading > .icon').removeClass('icon-three-dots');
+        $('li[data-cid=' + model.cid + ']').find('.default-loading > .icon').addClass('icon-upload-cloud');
+        $('li[data-cid=' + model.cid + ']').find('.files-card-progress').width(((e.loaded / e.total) * 100) + "%");
+      };
     },
 
     initialize: function() {
@@ -248,5 +257,4 @@ function(app, _, moment, Backbone, DirectusModal, DirectusEdit, __t, Notificatio
       this.widgets = [];
     }
   });
-
 });
